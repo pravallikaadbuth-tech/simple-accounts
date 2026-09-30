@@ -8,7 +8,94 @@ data.opening=data.opening||{bank:0,cash:0};
 const newArilovaEntries=[{"id":338,"type":"Expense","date":"2026-09-09","amount":1300,"party":"plywood transport","project":"Arilova","category":"Material / Shop","mode":"Cash","chequeStatus":"","description":"50 sheets | Carpenter"},{"id":339,"type":"Expense","date":"2026-09-09","amount":1900,"party":"plywood","project":"Arilova","category":"Labour","mode":"Cash","chequeStatus":"","description":"Material shiffting labour charges | Carpenter"},{"id":340,"type":"Expense","date":"2026-09-09","amount":1800,"party":"plumbing pipe line Earth work","project":"Arilova","category":"Labour","mode":"Cash","chequeStatus":"","description":"building front side earth work (2 male labour) | Plumbing"},{"id":341,"type":"Expense","date":"2026-09-10","amount":850,"party":"tile gum bags","project":"Arilova","category":"Material / Shop","mode":"UPI","chequeStatus":"","description":"terrace window frame fixing | Tiles"},{"id":342,"type":"Expense","date":"2026-09-10","amount":900,"party":"plumbing pipe line Earth work","project":"Arilova","category":"Labour","mode":"Cash","chequeStatus":"","description":"building front side plumbibg pipe concrete (1 male labour) | Plumbing"},{"id":343,"type":"Expense","date":"2026-09-10","amount":23500,"party":"Siris tgr bath arcade","project":"Arilova","category":"Material / Shop","mode":"Cash","chequeStatus":"","description":"Electrical (mcb) | Electrical"},{"id":344,"type":"Expense","date":"2026-09-10","amount":10000,"party":"Achari Carpenter","project":"Arilova","category":"Labour","mode":"Cash","chequeStatus":"","description":"Work Adavance | Carpenter"},{"id":345,"type":"Expense","date":"2026-09-14","amount":10000,"party":"Pullayya Mason","project":"Arilova","category":"Labour","mode":"Cash","chequeStatus":"","description":"Advance payment | Mason"},{"id":346,"type":"Expense","date":"2026-09-16","amount":3891,"party":"Siris tgr bath arcade","project":"Arilova","category":"Material / Shop","mode":"Cash","chequeStatus":"","description":"Plumbing material | Plumbing"},{"id":347,"type":"Expense","date":"2026-09-16","amount":4645,"party":"plumbing material","project":"Arilova","category":"Material / Shop","mode":"Cash","chequeStatus":"","description":"Plumbing material local purchase | Plumbing"},{"id":348,"type":"Expense","date":"2026-09-16","amount":60348,"party":"krishna huardware","project":"Arilova","category":"Material / Shop","mode":"Cash","chequeStatus":"","description":"sliding door hardware material | Carpenter"},{"id":349,"type":"Expense","date":"2026-09-16","amount":300,"party":"transport","project":"Arilova","category":"Material / Shop","mode":"Cash","chequeStatus":"","description":"sliding door hardware material | Carpenter"},{"id":350,"type":"Expense","date":"2026-09-18","amount":300,"party":"Transport","project":"Arilova","category":"Material / Shop","mode":"Cash","chequeStatus":"","description":"Laminate sheets 15 | Carpenter"},{"id":351,"type":"Expense","date":"2026-09-19","amount":6000,"party":"Lahari Enterprises","project":"Arilova","category":"Material / Shop","mode":"Cash","chequeStatus":"","description":"Gum bags 6 | Plumbing"},{"id":352,"type":"Expense","date":"2026-09-20","amount":50000,"party":"Pullayya Mason","project":"Arilova","category":"Labour","mode":"Cash - Home","chequeStatus":"","description":" | Mason"}];
 newArilovaEntries.forEach(x=>{if(!data.tx.some(t=>t.id===x.id))data.tx.push(x)});
 const $=id=>document.getElementById(id),rupee=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n||0);
+data.opening=data.opening||{bank:0,cash:0};
+const localBackup={projects:JSON.parse(JSON.stringify(data.projects)),tx:JSON.parse(JSON.stringify(data.tx)),opening:JSON.parse(JSON.stringify(data.opening))};
+data={projects:[],tx:[],opening:{bank:0,cash:0}};
+let cloudClient=null,cloudUser=null,cloudLoading=false;
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+async function initCloud(){
+ const mod=await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+ cloudClient=mod.createClient('https://jutucfiptqiiewdhmrmh.supabase.co','sb_publishable_CG3NKHljnEeo47je6k0TMA_kcrtOddd');
+ setupAuthUI();
+ const {data:s}=await cloudClient.auth.getSession();
+ await handleCloudSession(s&&s.session);
+ cloudClient.auth.onAuthStateChange((_e,session)=>setTimeout(()=>handleCloudSession(session),0));
+}
+function setupAuthUI(){
+ if($('authBox'))return;
+ const box=document.createElement('section');box.className='section';box.id='authBox';
+ box.innerHTML='<h3>Secure sign in</h3><div class="notice">Sign in to access your private accounting data.</div><div class="form"><input id="authEmail" type="email" placeholder="Email address"><input id="authPassword" type="password" placeholder="Password"><button class="btn" onclick="signInAccount()">Sign in</button><button class="btn" onclick="signUpAccount()">Create account</button></div><div id="authMsg" class="muted" style="margin-top:8px"></div>';
+ document.querySelector('.tabs').before(box);setAppLocked(true);
+}
+function setAppLocked(locked){
+ document.querySelector('.tabs').style.display=locked?'none':'flex';
+ ['dash','tx','projects','parties'].forEach(id=>$(id).style.display=locked?'none':'');
+ if($('authBox'))$('authBox').style.display=locked?'block':'none';
+}
+async function signInAccount(){
+ const email=$('authEmail').value.trim(),password=$('authPassword').value;
+ if(!email||!password)return $('authMsg').textContent='Enter your email and password.';
+ $('authMsg').textContent='Signing in...';
+ const {error}=await cloudClient.auth.signInWithPassword({email,password});
+ $('authMsg').textContent=error?error.message:'Signed in.';
+}
+async function signUpAccount(){
+ const email=$('authEmail').value.trim(),password=$('authPassword').value;
+ if(!email||!password)return $('authMsg').textContent='Enter your email and password.';
+ if(password.length<6)return $('authMsg').textContent='Password must be at least 6 characters.';
+ $('authMsg').textContent='Creating account...';
+ const {data:s,error}=await cloudClient.auth.signUp({email,password});
+ if(error)return $('authMsg').textContent=error.message;
+ $('authMsg').textContent=s.session?'Account created.':'Account created. Check your email if confirmation is required, then sign in.';
+}
+async function handleCloudSession(session){
+ cloudUser=session&&session.user||null;
+ if(!cloudUser){data={projects:[],tx:[],opening:{bank:0,cash:0}};render();updateMoney();setAppLocked(true);return}
+ setAppLocked(false);await loadCloudData();
+}
+async function loadCloudData(force=false){
+ if(!cloudClient||!cloudUser||(!force&&cloudLoading))return;
+ cloudLoading=true;
+ try{
+  const [pr,tr,op]=await Promise.all([
+   cloudClient.from('projects').select('id,name,client,agreed_value').order('id'),
+   cloudClient.from('transactions').select('id,transaction_date,type,amount,party,project_id,category,description,payment_mode,cheque_status').order('transaction_date',{ascending:false}).order('id',{ascending:false}),
+   cloudClient.from('opening_balances').select('bank_balance,cash_balance').maybeSingle()
+  ]);
+  if(pr.error)throw pr.error;if(tr.error)throw tr.error;if(op.error)throw op.error;
+  if(!pr.data.length&&!tr.data.length&&(localBackup.projects.length||localBackup.tx.length))await migrateLocalBackup();
+  else{
+   const map={};(pr.data||[]).forEach(p=>map[p.id]=p.name);
+   data.projects=(pr.data||[]).map(p=>({_id:p.id,name:p.name,client:p.client||'',value:+p.agreed_value||0}));
+   data.tx=(tr.data||[]).map(x=>({id:x.id,type:x.type,date:x.transaction_date||'',amount:+x.amount||0,party:x.party||'',project:map[x.project_id]||'',category:x.category||'Other',mode:x.payment_mode||'Unspecified',chequeStatus:x.cheque_status||'',description:x.description||''}));
+   data.opening=op.data?{bank:+op.data.bank_balance||0,cash:+op.data.cash_balance||0}:{bank:0,cash:0};
+   render();updateMoney();setupOpening();refreshOpeningInputs();
+  }
+ }catch(e){alert('Could not load your cloud data: '+e.message)}
+ finally{cloudLoading=false}
+}
+async function migrateLocalBackup(){
+ const bad=[...new Set(localBackup.tx.map(x=>x.mode).filter(m=>!['Bank','Cash','UPI','Cheque','Unspecified'].includes(m)))];
+ if(bad.length){alert('Unsupported payment mode(s): '+bad.join(', ')+'. Nothing was migrated.');return}
+ const {data:projects,error:pe}=await cloudClient.from('projects').insert(localBackup.projects.map(p=>({name:p.name,client:p.client||'',agreed_value:+p.value||0}))).select('id,name,client,agreed_value');
+ if(pe)throw pe;
+ const map={};(projects||[]).forEach(p=>map[p.name]=p.id);
+ const rows=localBackup.tx.map(x=>({transaction_date:x.date||null,type:x.type,amount:+x.amount,party:x.party||null,project_id:map[x.project]||null,category:x.category||'Other',description:x.description||null,payment_mode:x.mode||'Unspecified',cheque_status:x.mode==='Cheque'?(x.chequeStatus||'Pending'):null}));
+ for(let i=0;i<rows.length;i+=100){const {error}=await cloudClient.from('transactions').insert(rows.slice(i,i+100));if(error)throw error}
+ const {error:oe}=await cloudClient.from('opening_balances').upsert({bank_balance:+localBackup.opening.bank||0,cash_balance:+localBackup.opening.cash||0},{onConflict:'user_id'});
+ if(oe)throw oe;
+ localStorage.removeItem('simpleAccounts');
+ await loadCloudData(true);
+ alert('Your existing accounting data has been moved to Supabase successfully.');
+}
+function fixMoneyNotice(){const n=$('moneySummary')&&$('moneySummary').previousElementSibling;if(n)n.innerHTML='<b>Remaining Amount</b> = <b>Bank / Account + Cash in Hand</b>. Pending client cheques are separate and are not included in money available now.';const b=document.querySelector('.danger');if(b)b.textContent='Clear account data'}
+function save(){render();updateMoney()}
+async function addProject(){let n=$('pname').value.trim();if(!n)return;if(!cloudClient||!cloudUser)return alert('Please sign in first.');const {error}=await cloudClient.from('projects').insert({name:n,client:$('client').value.trim(),agreed_value:+$('value').value||0});if(error)return alert(error.message);$('pname').value=$('client').value=$('value').value='';await loadCloudData(true)}
+async function editProject(i){let p=data.projects[i],n=prompt('Project name',p.name);if(n===null)return;let c=prompt('Client name',p.client||'');if(c===null)return;let v=prompt('Agreed project value',p.value);if(v===null)return;if(!n.trim())return alert('Project name is required');const {error}=await cloudClient.from('projects').update({name:n.trim(),client:c.trim(),agreed_value:+v||0}).eq('id',p._id);if(error)return alert(error.message);await loadCloudData(true)}
+async function addTx(){let a=+$('amount').value;if(!a)return alert('Enter an amount');if(!cloudClient||!cloudUser)return alert('Please sign in first.');let m=$('mode').value,pn=$('project').value,p=data.projects.find(x=>x.name===pn);const row={transaction_date:$('date').value||new Date().toISOString().slice(0,10),type:$('type').value,amount:a,party:$('party').value||null,project_id:p?p._id:null,category:$('category').value,description:$('description').value||null,payment_mode:m,cheque_status:m==='Cheque'?$('chequeStatus').value:null};const {error}=await cloudClient.from('transactions').insert(row);if(error)return alert(error.message);$('amount').value=$('party').value=$('description').value='';await loadCloudData(true);show('dash',document.querySelector('.tab'))}
+function toggleCheque(){$('chequeStatus').classList.toggle('hide',$('mode').value!=='Cheque')}
+function refreshOpeningInputs(){if($('openingBank')){$('openingBank').value=data.opening.bank||0;$('openingCash').value=data.opening.cash||0}}
+async function saveOpening(){data.opening={bank:+$('openingBank').value||0,cash:+$('openingCash').value||0};if(cloudClient&&cloudUser){const {error}=await cloudClient.from('opening_balances').upsert({bank_balance:data.opening.bank,cash_balance:data.opening.cash},{onConflict:'user_id'});if(error)return alert(error.message)}updateMoney()}
 function save(){localStorage.setItem('simpleAccounts',JSON.stringify(data));render();updateMoney()}
 function addProject(){let n=$('pname').value.trim();if(!n)return;data.projects.push({name:n,client:$('client').value,value:+$('value').value||0});$('pname').value=$('client').value=$('value').value='';save()}
 function editProject(i){let p=data.projects[i],n=prompt('Project name',p.name);if(n===null)return;let c=prompt('Client name',p.client||'');if(c===null)return;let v=prompt('Agreed project value',p.value);if(v===null)return;n=n.trim();if(!n)return alert('Project name is required');data.projects[i]={name:n,client:c.trim(),value:+v||0};save()}
@@ -20,6 +107,5 @@ function setupOpening(){$('openingBank').value=data.opening.bank||0;$('openingCa
 function saveOpening(){data.opening={bank:+$('openingBank').value||0,cash:+$('openingCash').value||0};save()}
 function updateMoney(){let valid=x=>!(x.mode==='Cheque'&&x.chequeStatus!=='Cleared'),bankStart=+data.opening.bank||0,cashStart=+data.opening.cash||0,bankFlow=data.tx.filter(x=>(x.mode==='Bank'||x.mode==='UPI')&&valid(x)).reduce((s,x)=>s+(x.type==='Income'?x.amount:-x.amount),0),cashFlow=data.tx.filter(x=>x.mode==='Cash'&&valid(x)).reduce((s,x)=>s+(x.type==='Income'?x.amount:-x.amount),0),pending=data.tx.filter(x=>x.type==='Income'&&x.mode==='Cheque'&&x.chequeStatus==='Pending').reduce((s,x)=>s+x.amount,0),remaining=bankStart+cashStart+bankFlow+cashFlow,cash=Math.max(0,cashStart+cashFlow),bank=Math.max(0,remaining-cash);$('bankNet').textContent=rupee(bank);$('cashNet').textContent=rupee(cash);$('pendingCheques').textContent=rupee(pending);$('net').textContent=rupee(remaining);$('moneySummary').innerHTML='<div style="display:flex;justify-content:space-between;padding:10px 0"><span>Bank / Account</span><b>'+rupee(bank)+'</b></div><div style="display:flex;justify-content:space-between;padding:10px 0;border-top:1px solid #eee"><span>Cash in Hand</span><b>'+rupee(cash)+'</b></div><div style="display:flex;justify-content:space-between;padding:12px 0;border-top:2px solid #17202a;margin-top:4px"><b>Remaining Amount</b><b>'+rupee(remaining)+'</b></div><div class="muted" style="margin-top:8px">Remaining Amount = Bank / Account + Cash in Hand. Cash never shows as a negative balance. Pending client cheques are separate and not included.</div>'}
 function show(id,btn){['dash','tx','projects','parties'].forEach(x=>$(x).classList.toggle('hide',x!==id));document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));if(btn)btn.classList.add('active')}
-function clearAll(){if(confirm('Delete all data in this browser?')){data={tx:[],projects:[],opening:{bank:0,cash:0}};save()}}
-document.addEventListener('DOMContentLoaded',function(){$('date').value=new Date().toISOString().slice(0,10);toggleCheque();render();setupOpening();updateMoney()});
-</script></body></html>
+async function clearAll(){if(!cloudClient||!cloudUser)return;if(!confirm('Delete all cloud accounting data for this account?'))return;let r=await cloudClient.from('transactions').delete().eq('user_id',cloudUser.id);if(r.error)return alert(r.error.message);r=await cloudClient.from('projects').delete().eq('user_id',cloudUser.id);if(r.error)return alert(r.error.message);r=await cloudClient.from('opening_balances').delete().eq('user_id',cloudUser.id);if(r.error)return alert(r.error.message);localStorage.removeItem('simpleAccounts');await loadCloudData(true)}
+document.addEventListener('DOMContentLoaded',async function(){$('date').value=new Date().toISOString().slice(0,10);toggleCheque();render();setupOpening();updateMoney();fixMoneyNotice();try{await initCloud()}catch(e){alert('Could not connect to Supabase: '+e.message)}});</script></body></html>
